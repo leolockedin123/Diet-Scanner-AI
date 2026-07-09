@@ -3,7 +3,8 @@ import json
 import base64
 import re
 from flask import Flask, request, jsonify, send_from_directory
-import google.generativeai as genai
+from google import genai
+from google.genai import types as genai_types
 from supabase import create_client, Client
 
 app = Flask(__name__, static_folder='.')
@@ -12,7 +13,7 @@ GEMINI_API_KEY    = os.environ.get("GEMINI_API_KEY")
 SUPABASE_URL      = os.environ.get("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY")
 
-genai.configure(api_key=GEMINI_API_KEY)
+genai_client = genai.Client(api_key=GEMINI_API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 # ── Static routes ─────────────────────────────────────────────────────────────
@@ -82,11 +83,13 @@ Return ONLY a valid JSON object — no markdown, no backticks, no extra text —
 
 Be as accurate as possible. If uncertain, lean conservative on calories."""
 
-        model = genai.GenerativeModel('gemini-2.0-flash')
-        response = model.generate_content([
-            {"mime_type": mime_type, "data": image_b64},
-            prompt
-        ])
+        response = genai_client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=[
+                genai_types.Part.from_bytes(data=base64.b64decode(image_b64), mime_type=mime_type),
+                prompt
+            ]
+        )
 
         raw = response.text.strip()
         # Strip markdown fences if present
