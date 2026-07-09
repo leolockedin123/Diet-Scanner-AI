@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calio — AI Calorie Tracker</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg:           #f5f1eb;
+            --card:         #ffffff;
+            --card2:        #f8f5f1;
+            --border:       #e6e0d8;
+            --accent:       #e8622a;
+            --accent-hover: #d0521d;
+            --accent-lt:    #fde8dc;
+            --green:        #2d6a4f;
+            --green-lt:     #d1fae5;
+            --text:         #1c1917;
+            --muted:        #78716c;
+            --muted2:       #a8a29e;
+            --danger:       #ef4444;
+            --warn-bg:      #fff7ed;
+            --warn-text:    #9a3412;
+            --shadow:       0 1px 3px rgba(0,0,0,0.06), 0 4px 20px rgba(0,0,0,0.07);
+            --radius:       14px;
+        }
+
+        body {
+            font-family: 'DM Sans', -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            padding: 28px 16px 56px;
+            transition: background 0.4s ease;
+        }
+
+        .hidden { display: none !important; }
+
+        /* ── Toast ── */
+        #toast-container {
+            position: fixed; bottom: 24px; left: 50%;
+            transform: translateX(-50%);
+            display: flex; flex-direction: column; gap: 8px;
+            z-index: 9999; pointer-events: none;
+            width: min(400px, calc(100vw - 32px));
+        }
+        .toast {
+            display: flex; align-items: center; gap: 10px;
+            background: #1c1917; color: #fff;
+            border-radius: 12px; padding: 12px 16px;
+            font-size: 0.88rem; font-weight: 500;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+            pointer-events: all;
+            animation: toast-in 0.35s cubic-bezier(0.34,1.56,0.64,1) forwards;
+        }
+        .toast.success { border-left: 3px solid var(--green); }
+        .toast.error   { border-left: 3px solid var(--danger); }
+        .toast.info    { border-left: 3px solid var(--accent); }
+        .toast.out     { animation: toast-out 0.25s ease forwards; }
+        @keyframes toast-in  { from { opacity:0; transform:translateY(20px) scale(0.95); } to { opacity:1; transform:translateY(0) scale(1); } }
+        @keyframes toast-out { from { opacity:1; } to { opacity:0; transform:translateY(10px); } }
+
+        /* ── Modals ── */
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 8888; padding: 24px;
+        }
+        .modal-box {
+            background: var(--card); border-radius: 20px;
+            padding: 28px 24px; max-width: 340px; width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+            animation: modal-in 0.25s cubic-bezier(0.34,1.56,0.64,1);
+        }
+        @keyframes modal-in { from { opacity:0; transform:scale(0.92); } to { opacity:1; transform:scale(1); } }
+        .modal-box h3 { font-size: 1rem; font-weight: 700; margin-bottom: 6px; }
+        .modal-box p  { font-size: 0.85rem; color: var(--muted); margin-bottom: 20px; line-height: 1.5; }
+        .modal-btns   { display: flex; gap: 10px; }
+        .modal-btns button {
+            flex: 1; padding: 11px; border-radius: 10px;
+            font-family: 'DM Sans', sans-serif; font-size: 0.9rem;
+            font-weight: 600; cursor: pointer; border: none;
+        }
+        .modal-btn-danger  { background: var(--danger); color: #fff; }
+        .modal-btn-cancel  { background: var(--card2); color: var(--text); border: 1.5px solid var(--border) !important; }
+
+        /* ── Card shell ── */
+        .card {
+            background: var(--card);
+            border-radius: 20px;
+            width: 100%; max-width: 560px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+            display: flex; flex-direction: column;
+            align-self: flex-start;
+        }
+
+        /* ── Skeleton ── */
+        .skeleton {
+            background: linear-gradient(90deg, var(--border) 25%, #ede8e1 50%, var(--border) 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.4s infinite; border-radius: 8px;
+        }
+        @keyframes shimmer { 0% { background-position:200% 0; } 100% { background-position:-200% 0; } }
+        .skeleton-line { height:14px; margin-bottom:10px; }
+        .skeleton-block { height:60px; margin-bottom:10px; border-radius:10px; }
+
+        /* ══════════════════════════════════════
+           AUTH
+        ══════════════════════════════════════ */
+        #auth-screen { padding: 52px 40px 48px; }
+        .auth-logo {
+            width: 56px; height: 56px; background: var(--accent);
+            border-radius: 14px; display: flex; align-items: center;
+            justify-content: center; font-size: 26px; margin-bottom: 22px;
+            animation: logo-bounce 0.6s cubic-bezier(0.34,1.56,0.64,1);
+        }
+        @keyframes logo-bounce { from { opacity:0; transform:scale(0.5) rotate(-10deg); } to { opacity:1; transform:scale(1) rotate(0); } }
+        #auth-screen h1 {
+            font-family: 'DM Serif Display', serif;
+            font-size: 2.2rem; font-weight: 400; letter-spacing: -0.5px;
+            color: var(--text); margin-bottom: 6px;
+        }
+        #auth-screen h1 span { color: var(--accent); }
+        #auth-screen .subtitle { color: var(--muted); font-size: 0.92rem; line-height: 1.6; margin-bottom: 28px; }
+
+        .auth-tabs {
+            display: flex; border-bottom: 1.5px solid var(--border);
+            margin-bottom: 24px; gap: 4px;
+        }
+        .auth-tabs button {
+            flex: 1; background: none; border: none;
+            border-bottom: 2.5px solid transparent; margin-bottom: -1.5px;
+            padding: 10px 0; font-family: 'DM Sans', sans-serif;
+            font-size: 0.9rem; font-weight: 500; color: var(--muted);
+            cursor: pointer; transition: color 0.15s, border-color 0.15s;
+        }
+        .auth-tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+        .auth-form { display: flex; flex-direction: column; gap: 10px; }
+        .auth-form .row2 { display: flex; gap: 10px; }
+        .auth-form .row2 input { flex: 1; }
+
+        input[type="email"], input[type="password"],
+        input[type="text"], input[type="number"] {
+            width: 100%; padding: 11px 14px;
+            background: var(--card2); border: 1.5px solid var(--border);
+            border-radius: 10px; color: var(--text);
+            font-family: 'DM Sans', sans-serif; font-size: 0.9rem;
+            outline: none; transition: border-color 0.15s;
+        }
+        input::placeholder { color: var(--muted2); }
+        input:focus { border-color: var(--accent); background: #fff; }
+
+        .btn-primary {
+            width: 100%; padding: 12px; background: var(--accent); color: #fff;
+            border: none; border-radius: 10px; font-family: 'DM Sans', sans-serif;
+            font-size: 0.95rem; font-weight: 600; cursor: pointer;
+            transition: background 0.15s, transform 0.1s; margin-top: 4px;
+        }
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-primary:active { transform: scale(0.98); }
+
+        .btn-secondary {
+            width: 100%; padding: 11px; background: var(--card2); color: var(--text);
+            border: 1.5px solid var(--border); border-radius: 10px;
+            font-family: 'DM Sans', sans-serif; font-size: 0.9rem; font-weight: 500;
+            cursor: pointer; transition: background 0.15s; margin-top: 4px;
+        }
+        .btn-secondary:hover { background: var(--border); }
+
+        .btn-google {
+            display: flex; align-items: center; justify-content: center; gap: 10px;
+            width: 100%; padding: 11px; background: var(--card2);
+            border: 1.5px solid var(--border); border-radius: 10px;
+            font-family: 'DM Sans', sans-serif; font-size: 0.9rem; font-weight: 500;
+            color: var(--text); cursor: pointer; transition: background 0.15s; margin-top: 4px;
+        }
+        .btn-google:hover { background: var(--border); }
+        .btn-google svg { width: 18px; height: 18px; flex-shrink: 0; }
+
+        .auth-divider {
+            display: flex; align-items: center; gap: 10px;
+            color: var(--muted2); font-size: 0.8rem; margin: 4px 0;
+        }
+        .auth-divider::before, .auth-divider::after { content:''; flex:1; height:1px; background:var(--border); }
+        .error-msg { color: var(--danger); font-size: 0.82rem; min-height: 18px; }
+
+        /* ══════════════════════════════════════
+           DASHBOARD
+        ══════════════════════════════════════ */
+        #dashboard-screen { display: flex; flex-direction: column; }
+
+        .topbar {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 18px 24px; border-bottom: 1px solid var(--border);
+        }
+        .topbar-logo { display: flex; align-items: center; gap: 10px; }
+        .topbar-icon {
+            width: 34px; height: 34px; background: var(--accent);
+            border-radius: 9px; display: flex; align-items: center;
+            justify-content: center; font-size: 17px;
+        }
+        .topbar-logo span { font-family: 'DM Serif Display', serif; font-size: 1.1rem; }
+        #signout-btn {
+            padding: 6px 14px; background: var(--card2);
+            border: 1px solid var(--border); border-radius: 20px;
+            font-family: 'DM Sans', sans-serif; font-size: 0.8rem;
+            color: var(--muted); cursor: pointer; width: auto; margin: 0;
+            transition: background 0.15s;
+        }
+        #signout-btn:hover { background: var(--border); }
+
+        .nav-bar {
+            display: flex; border-bottom: 1px solid var(--border);
+            padding: 0 16px; gap: 2px;
+        }
+        .nav-item {
+            flex: 1; background: none; border: none;
+            border-bottom: 2.5px solid transparent; margin-bottom: -1px;
+            padding: 12px 8px; font-family: 'DM Sans', sans-serif;
+            font-size: 0.82rem; font-weight: 500; color: var(--muted);
+            cursor: pointer; transition: color 0.15s, border-color 0.15s;
+        }
+        .nav-item.active { color: var(--accent); border-bottom-color: var(--accent); }
+        .nav-item:hover:not(.active) { color: var(--text); }
+
+        .tab-panel { display: none; flex-direction: column; padding: 20px 24px 28px; gap: 16px; }
+        .tab-panel.active { display: flex; }
+
+        /* ══════════════════════════════════════
+           TODAY TAB (main scanner)
+        ══════════════════════════════════════ */
+
+        /* Date strip */
+        .date-strip {
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .date-strip-left h2 {
+            font-family: 'DM Serif Display', serif; font-size: 1.4rem; font-weight: 400;
+        }
+        .date-strip-left p { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+        .date-nav { display: flex; align-items: center; gap: 6px; }
+        .date-nav button {
+            width: 30px; height: 30px; border-radius: 50%;
+            background: var(--card2); border: 1px solid var(--border);
+            cursor: pointer; font-size: 0.9rem; display: flex;
+            align-items: center; justify-content: center;
+            transition: background 0.15s; color: var(--text);
+        }
+        .date-nav button:hover { background: var(--border); }
+
+        /* Calorie ring */
+        .calorie-ring-wrap {
+            display: flex; flex-direction: column; align-items: center;
+            padding: 8px 0 4px; gap: 0;
+        }
+        .ring-container { position: relative; width: 160px; height: 160px; }
+        .ring-svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+        .ring-track { fill: none; stroke: var(--border); }
+        .ring-fill  {
+            fill: none; stroke: var(--accent); stroke-linecap: round;
+            transition: stroke-dashoffset 0.8s cubic-bezier(0.34,1.56,0.64,1);
+            filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 40%, transparent));
+        }
+        .ring-center {
+            position: absolute; inset: 0; display: flex;
+            flex-direction: column; align-items: center; justify-content: center;
+        }
+        .ring-cal-num {
+            font-size: 2rem; font-weight: 700; color: var(--text); line-height: 1;
+        }
+        .ring-cal-lbl { font-size: 0.7rem; color: var(--muted); margin-top: 3px; }
+        .ring-cal-goal { font-size: 0.78rem; color: var(--accent); font-weight: 600; }
+
+        .macro-row {
+            display: flex; gap: 10px; width: 100%; margin-top: 12px;
+        }
+        .macro-pill {
+            flex: 1; background: var(--card2); border: 1px solid var(--border);
+            border-radius: 12px; padding: 10px 8px; text-align: center;
+        }
+        .macro-val { font-size: 1rem; font-weight: 700; color: var(--text); }
+        .macro-lbl { font-size: 0.68rem; color: var(--muted); margin-top: 2px; }
+        .macro-bar-wrap { height: 4px; background: var(--border); border-radius: 3px; margin-top: 6px; overflow: hidden; }
+        .macro-bar { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+        .macro-bar.protein { background: #3b82f6; }
+        .macro-bar.carbs   { background: #f59e0b; }
+        .macro-bar.fat     { background: #ef4444; }
+
+        /* Camera / scan zone */
+        .scan-zone {
+            position: relative; border-radius: 16px; overflow: hidden;
+            background: var(--card2); border: 2px dashed var(--border);
+            cursor: pointer; transition: border-color 0.2s, background 0.2s;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            min-height: 180px;
+        }
+        .scan-zone:hover { border-color: var(--accent); background: var(--accent-lt); }
+        .scan-zone.drag-over { border-color: var(--accent); background: var(--accent-lt); transform: scale(1.01); }
+        .scan-zone-icon { font-size: 2.6rem; margin-bottom: 10px; }
+        .scan-zone h3 { font-size: 1rem; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+        .scan-zone p  { font-size: 0.82rem; color: var(--muted); }
+        #file-input { display: none; }
+
+        /* Preview + analyse */
+        #preview-wrap {
+            border-radius: 16px; overflow: hidden;
+            position: relative; background: #000;
+        }
+        #preview-img {
+            width: 100%; max-height: 300px; object-fit: cover;
+            display: block;
+        }
+        #preview-overlay {
+            position: absolute; inset: 0;
+            background: linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.7) 100%);
+        }
+        .preview-actions {
+            display: flex; gap: 10px;
+        }
+        #analyse-btn {
+            flex: 1; padding: 13px; background: var(--accent); color: #fff;
+            border: none; border-radius: var(--radius);
+            font-family: 'DM Sans', sans-serif; font-size: 0.95rem;
+            font-weight: 700; cursor: pointer; margin: 0; width: auto;
+            transition: background 0.15s, transform 0.1s;
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+        }
+        #analyse-btn:hover { background: var(--accent-hover); }
+        #analyse-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        #retake-btn {
+            padding: 13px 18px; background: var(--card2); color: var(--muted);
+            border: 1.5px solid var(--border); border-radius: var(--radius);
+            font-family: 'DM Sans', sans-serif; font-size: 0.9rem;
+            font-weight: 500; cursor: pointer; margin: 0; width: auto;
+        }
+
+        /* Meal label selector */
+        .meal-label-row { display: flex; gap: 7px; flex-wrap: wrap; }
+        .meal-chip {
+            padding: 6px 14px; border-radius: 20px;
+            border: 1.5px solid var(--border); background: var(--card2);
+            color: var(--muted); font-size: 0.83rem; font-weight: 500;
+            cursor: pointer; transition: all 0.15s; user-select: none;
+        }
+        .meal-chip:hover { border-color: var(--accent); color: var(--accent); }
+        .meal-chip.selected { background: var(--accent-lt); border-color: var(--accent); color: var(--accent); }
+
+        /* Analysing spinner overlay */
+        .analysing-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 9000; gap: 20px;
+        }
+        .spinner-ring {
+            width: 64px; height: 64px; border-radius: 50%;
+            border: 5px solid rgba(255,255,255,0.2);
+            border-top-color: var(--accent);
+            animation: spin 0.9s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .analysing-text { color: #fff; font-size: 1rem; font-weight: 600; }
+
+        /* Result card */
+        .result-card {
+            background: var(--card2); border: 1px solid var(--border);
+            border-radius: var(--radius); overflow: hidden;
+            animation: slide-up 0.35s cubic-bezier(0.34,1.56,0.64,1);
+        }
+        @keyframes slide-up { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+        .result-header {
+            background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+            padding: 16px 18px; color: #fff;
+        }
+        .result-dish { font-family: 'DM Serif Display', serif; font-size: 1.3rem; font-weight: 400; }
+        .result-serving { font-size: 0.8rem; opacity: 0.85; margin-top: 3px; }
+        .result-confidence {
+            display: inline-flex; align-items: center; gap: 4px;
+            font-size: 0.7rem; font-weight: 700; margin-top: 6px;
+            padding: 2px 8px; border-radius: 20px; background: rgba(255,255,255,0.2);
+        }
+        .result-cal-big { font-size: 2rem; font-weight: 700; margin-top: 8px; }
+        .result-cal-big span { font-size: 1rem; opacity: 0.8; font-weight: 400; }
+
+        .result-macros {
+            display: grid; grid-template-columns: repeat(3,1fr);
+            gap: 1px; background: var(--border);
+        }
+        .result-macro-cell {
+            background: var(--card); padding: 12px 10px; text-align: center;
+        }
+        .rmc-val { font-size: 1.1rem; font-weight: 700; color: var(--text); }
+        .rmc-lbl { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
+
+        .result-items { padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+        .result-item-row {
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 0.88rem;
+        }
+        .result-item-name { color: var(--text); font-weight: 500; }
+        .result-item-right { display: flex; gap: 12px; color: var(--muted); font-size: 0.82rem; }
+
+        .result-tip {
+            margin: 0 16px 14px; padding: 10px 12px;
+            background: var(--green-lt); color: var(--green);
+            border-radius: 10px; font-size: 0.82rem; line-height: 1.5;
+        }
+
+        /* Today's log list */
+        .section-label {
+            font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em;
+            text-transform: uppercase; color: var(--muted2); margin-bottom: 6px;
+        }
+        .log-entry {
+            display: flex; align-items: center; justify-content: space-between;
+            background: var(--card2); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 12px 14px;
+            animation: slide-up 0.3s ease;
+        }
+        .log-entry-left { display: flex; flex-direction: column; gap: 2px; }
+        .log-dish { font-weight: 700; font-size: 0.9rem; color: var(--text); }
+        .log-meta { font-size: 0.75rem; color: var(--muted); }
+        .log-entry-right { display: flex; align-items: center; gap: 10px; }
+        .log-cal { font-weight: 700; font-size: 0.95rem; color: var(--accent); }
+        .log-meal-badge {
+            font-size: 0.68rem; font-weight: 700; padding: 2px 7px;
+            border-radius: 20px; text-transform: capitalize;
+            background: var(--accent-lt); color: var(--accent);
+        }
+        .log-delete {
+            background: none; border: none; cursor: pointer;
+            color: var(--muted2); font-size: 1rem; padding: 2px 4px;
+            transition: color 0.15s;
+        }
+        .log-delete:hover { color: var(--danger); }
+
+        .empty-state {
+            text-align: center; padding: 32px 16px; color: var(--muted);
+            font-size: 0.88rem; line-height: 1.6;
+        }
+        .empty-state .es-icon { font-size: 2.5rem; margin-bottom: 10px; }
+
+        /* ══════════════════════════════════════
+           HISTORY TAB
+        ══════════════════════════════════════ */
+        .bar-chart-wrap {
+            background: var(--card2); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 16px;
+        }
+        .bar-chart-title { font-size: 0.85rem; font-weight: 600; color: var(--text); margin-bottom: 14px; }
+        .bar-chart { display: flex; align-items: flex-end; gap: 8px; height: 90px; }
+        .bar-col { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; }
+        .bar-fill {
+            width: 100%; background: var(--accent); border-radius: 4px 4px 0 0;
+            min-height: 4px; transition: height 0.6s cubic-bezier(0.34,1.56,0.64,1);
+        }
+        .bar-fill.empty { background: var(--border); opacity: 0.5; }
+        .bar-lbl { font-size: 0.68rem; color: var(--muted2); }
+        .bar-val  { font-size: 0.62rem; color: var(--muted); margin-top: 2px; }
+
+        .history-stats-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
+        .hstat-card {
+            background: var(--card2); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 14px 10px; text-align: center;
+        }
+        .hstat-num { font-size: 1.6rem; font-weight: 700; color: var(--accent); }
+        .hstat-lbl { font-size: 0.72rem; color: var(--muted); margin-top: 3px; }
+
+        .history-log-item {
+            background: var(--card2); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 12px 16px;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .hli-left .hli-date { font-size: 0.8rem; font-weight: 700; color: var(--text); }
+        .hli-left .hli-meals { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+        .hli-cal { font-weight: 700; color: var(--accent); font-size: 0.95rem; }
+
+        /* ══════════════════════════════════════
+           PROFILE TAB
+        ══════════════════════════════════════ */
+        .profile-avatar-area {
+            display: flex; flex-direction: column; align-items: center;
+            gap: 8px; padding: 4px 0 8px;
+        }
+        .avatar-circle {
+            width: 72px; height: 72px; border-radius: 50%;
+            background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+            display: flex; align-items: center; justify-content: center;
+            font-size: 2rem; font-weight: 700; color: #fff;
+            box-shadow: 0 4px 16px rgba(232,98,42,0.35);
+        }
+        .profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+        select {
+            width: 100%; padding: 11px 14px;
+            background: var(--card2); border: 1.5px solid var(--border);
+            border-radius: 10px; color: var(--text);
+            font-family: 'DM Sans', sans-serif; font-size: 0.9rem;
+            outline: none; transition: border-color 0.15s; cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2378716c' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat; background-position: right 12px center;
+        }
+        select:focus { border-color: var(--accent); }
+
+        textarea {
+            width: 100%; padding: 11px 14px; min-height: 80px;
+            background: var(--card2); border: 1.5px solid var(--border);
+            border-radius: 10px; color: var(--text);
+            font-family: 'DM Sans', sans-serif; font-size: 0.9rem;
+            outline: none; resize: vertical; transition: border-color 0.15s;
+        }
+        textarea:focus { border-color: var(--accent); }
+        textarea::placeholder { color: var(--muted2); }
+
+        /* Theme swatches */
+        .theme-swatch {
+            width: 38px; height: 38px; border-radius: 50%;
+            border: 3px solid transparent; cursor: pointer;
+            transition: transform 0.15s, border-color 0.15s;
+            outline: none; padding: 0;
+        }
+        .theme-swatch:hover { transform: scale(1.15); }
+        .theme-swatch.selected { border-color: var(--text); box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--text); }
+
+        #save-profile-btn {
+            padding: 12px; background: var(--accent); color: #fff;
+            border: none; border-radius: var(--radius);
+            font-family: 'DM Sans', sans-serif; font-size: 0.95rem;
+            font-weight: 600; cursor: pointer; width: 100%; margin: 0;
+            transition: background 0.15s;
+        }
+        #save-profile-btn:hover { background: var(--accent-hover); }
+
+        .btn-danger-outline {
+            padding: 10px; background: var(--card2); color: var(--danger);
+            border: 1.5px solid var(--danger); border-radius: var(--radius);
+            font-family: 'DM Sans', sans-serif; font-size: 0.85rem;
+            font-weight: 500; cursor: pointer; width: 100%; margin: 0;
+            transition: background 0.15s; opacity: 0.8;
+        }
+        .btn-danger-outline:hover { background: #fee2e2; }
+
+        /* ══════════════════════════════════════
+           MOBILE
+        ══════════════════════════════════════ */
+        @media (max-width: 480px) {
+            body { padding: 0; align-items: stretch; }
+            .card { max-width: 100%; min-height: 100vh; min-height: 100dvh; border-radius: 0; border: none; box-shadow: none; }
+            #auth-screen { padding: 40px 22px 36px; }
+            #auth-screen h1 { font-size: 1.85rem; }
+            .topbar { padding: 14px 16px; }
+            .nav-bar { padding: 0 6px; gap: 0; }
+            .nav-item { font-size: 0.72rem; padding: 10px 4px; }
+            .tab-panel { padding: 16px 16px 24px; gap: 14px; }
+            .history-stats-row { gap: 8px; }
+            .hstat-num { font-size: 1.3rem; }
+            .profile-grid { gap: 8px; }
+            .macro-row { gap: 7px; }
+        }
+        @media (max-width: 360px) {
+            .nav-item { font-size: 0.66rem; padding: 9px 2px; }
+            .macro-val { font-size: 0.88rem; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="toast-container"></div>
+
+<!-- Sign-out modal -->
+<div id="signout-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+        <h3>Sign out?</h3>
+        <p>You'll need to sign back in to access your food logs.</p>
+        <div class="modal-btns">
+            <button id="cancel-signout-btn" class="modal-btn-cancel">Stay in</button>
+            <button id="confirm-signout-btn" class="modal-btn-danger">Sign out</button>
+        </div>
+    </div>
+</div>
+
+<!-- Reset account modal -->
+<div id="reset-account-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+        <h3>⚠️ Reset everything?</h3>
+        <p>This will permanently delete all your food logs and profile settings. Your sign-in stays. This cannot be undone.</p>
+        <div class="modal-btns">
+            <button id="cancel-reset-btn" class="modal-btn-cancel">Cancel</button>
+            <button id="confirm-reset-btn" class="modal-btn-danger">Reset all</button>
+        </div>
+    </div>
+</div>
+
+<!-- Analysing overlay -->
+<div id="analysing-overlay" class="analysing-overlay hidden">
+    <div class="spinner-ring"></div>
+    <div class="analysing-text" id="analysing-text">Analysing your meal…</div>
+</div>
+
+<div class="card">
+
+    <!-- ══ AUTH ══ -->
+    <div id="auth-screen">
+        <div class="auth-logo">🍽️</div>
+        <h1>Meet <span>Calio</span></h1>
+        <p class="subtitle">Your AI calorie tracker. Snap a bird's-eye photo of any meal and instantly get full nutrition data powered by Gemini.</p>
+
+        <div class="auth-tabs">
+            <button id="tab-login" class="active" onclick="switchAuthTab('login')">Log in</button>
+            <button id="tab-signup" onclick="switchAuthTab('signup')">Sign up</button>
+        </div>
+
+        <div id="login-form" class="auth-form">
+            <input type="email" id="login-email" placeholder="Email address">
+            <input type="password" id="login-password" placeholder="Password">
+            <p class="error-msg" id="login-error"></p>
+            <button class="btn-primary" id="login-btn">Log in</button>
+            <div class="auth-divider">or</div>
+            <button class="btn-google" id="google-login-btn">
+                <svg viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                Continue with Google
+            </button>
+        </div>
+
+        <div id="signup-form" class="auth-form hidden">
+            <div class="row2">
+                <input type="text" id="signup-first" placeholder="First name">
+                <input type="text" id="signup-last"  placeholder="Last name">
+            </div>
+            <input type="email"    id="signup-email"    placeholder="Email address">
+            <input type="password" id="signup-password" placeholder="Password (min 6 chars)">
+            <p class="error-msg" id="signup-error"></p>
+            <button class="btn-primary" id="signup-btn">Create account</button>
+            <div class="auth-divider">or</div>
+            <button class="btn-google" id="google-signup-btn">
+                <svg viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                Continue with Google
+            </button>
+        </div>
+    </div>
+
+    <!-- ══ DASHBOARD ══ -->
+    <div id="dashboard-screen" class="hidden">
+
+        <div class="topbar">
+            <div class="topbar-logo">
+                <div class="topbar-icon">🍽️</div>
+                <span>Calio</span>
+            </div>
+            <button id="signout-btn">Sign out</button>
+        </div>
+
+        <nav class="nav-bar">
+            <button class="nav-item active" id="nav-today"   onclick="switchTab('today')">📸 Today</button>
+            <button class="nav-item"        id="nav-history" onclick="switchTab('history')">📊 History</button>
+            <button class="nav-item"        id="nav-profile" onclick="switchTab('profile')">👤 Profile</button>
+        </nav>
+
+        <!-- ── Today tab ── -->
+        <div class="tab-panel active" id="today-tab">
+
+            <!-- Date nav -->
+            <div class="date-strip">
+                <div class="date-strip-left">
+                    <h2 id="date-heading">Today</h2>
+                    <p id="date-subheading"></p>
+                </div>
+                <div class="date-nav">
+                    <button id="date-prev" title="Previous day">◀</button>
+                    <button id="date-today" title="Go to today" style="font-size:0.7rem;font-weight:700;width:auto;padding:0 10px;">Today</button>
+                    <button id="date-next" title="Next day">▶</button>
+                </div>
+            </div>
+
+            <!-- Calorie ring + macros -->
+            <div class="calorie-ring-wrap">
+                <div class="ring-container">
+                    <svg class="ring-svg" viewBox="0 0 160 160">
+                        <circle class="ring-track" cx="80" cy="80" r="66" stroke-width="12"/>
+                        <circle class="ring-fill" id="cal-ring" cx="80" cy="80" r="66" stroke-width="12"
+                            stroke-dasharray="414.69" stroke-dashoffset="414.69"/>
+                    </svg>
+                    <div class="ring-center">
+                        <div class="ring-cal-num" id="ring-cal-num">0</div>
+                        <div class="ring-cal-lbl">kcal eaten</div>
+                        <div class="ring-cal-goal" id="ring-cal-goal"></div>
+                    </div>
+                </div>
+                <div class="macro-row">
+                    <div class="macro-pill">
+                        <div class="macro-val" id="mac-protein">0g</div>
+                        <div class="macro-lbl">Protein</div>
+                        <div class="macro-bar-wrap"><div class="macro-bar protein" id="bar-protein" style="width:0%"></div></div>
+                    </div>
+                    <div class="macro-pill">
+                        <div class="macro-val" id="mac-carbs">0g</div>
+                        <div class="macro-lbl">Carbs</div>
+                        <div class="macro-bar-wrap"><div class="macro-bar carbs" id="bar-carbs" style="width:0%"></div></div>
+                    </div>
+                    <div class="macro-pill">
+                        <div class="macro-val" id="mac-fat">0g</div>
+                        <div class="macro-lbl">Fat</div>
+                        <div class="macro-bar-wrap"><div class="macro-bar fat" id="bar-fat" style="width:0%"></div></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Meal label -->
+            <div>
+                <div class="section-label">Meal type</div>
+                <div class="meal-label-row">
+                    <div class="meal-chip selected" data-val="breakfast">🌅 Breakfast</div>
+                    <div class="meal-chip" data-val="lunch">☀️ Lunch</div>
+                    <div class="meal-chip" data-val="dinner">🌙 Dinner</div>
+                    <div class="meal-chip" data-val="snack">🍎 Snack</div>
+                </div>
+            </div>
+
+            <!-- Scan zone / preview -->
+            <input type="file" id="file-input" accept="image/*" capture="environment">
+            <div id="scan-zone" class="scan-zone">
+                <div class="scan-zone-icon">📷</div>
+                <h3>Snap your meal</h3>
+                <p>Tap to take a photo or upload from gallery</p>
+            </div>
+            <div id="preview-wrap" class="hidden">
+                <img id="preview-img" alt="Food preview">
+                <div id="preview-overlay"></div>
+            </div>
+            <div id="preview-actions" class="preview-actions hidden">
+                <button id="retake-btn">↩ Retake</button>
+                <button id="analyse-btn">🔍 Analyse meal</button>
+            </div>
+
+            <!-- Result -->
+            <div id="result-wrap" class="hidden"></div>
+
+            <!-- Today's log -->
+            <div id="today-log-section">
+                <div class="section-label">Logged today</div>
+                <div id="today-log-list">
+                    <div class="skeleton skeleton-block" style="height:52px;"></div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ── History tab ── -->
+        <div class="tab-panel" id="history-tab">
+
+            <div class="history-stats-row">
+                <div class="hstat-card">
+                    <div class="hstat-num" id="h-avg-cal">—</div>
+                    <div class="hstat-lbl">Avg kcal/day</div>
+                </div>
+                <div class="hstat-card">
+                    <div class="hstat-num" id="h-total-logs">—</div>
+                    <div class="hstat-lbl">Meals logged</div>
+                </div>
+                <div class="hstat-card">
+                    <div class="hstat-num" id="h-streak">—</div>
+                    <div class="hstat-lbl">Day streak 🔥</div>
+                </div>
+            </div>
+
+            <div class="bar-chart-wrap">
+                <div class="bar-chart-title">Calories — last 7 days</div>
+                <div class="bar-chart" id="history-bar-chart"></div>
+            </div>
+
+            <div>
+                <div class="section-label" style="margin-bottom:10px;">Daily breakdown</div>
+                <div id="history-list" style="display:flex;flex-direction:column;gap:8px;">
+                    <div class="skeleton skeleton-block"></div>
+                    <div class="skeleton skeleton-block"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Profile tab ── -->
+        <div class="tab-panel" id="profile-tab">
+
+            <div class="profile-avatar-area">
+                <div class="avatar-circle" id="profile-avatar">?</div>
+            </div>
+
+            <div>
+                <div class="section-label">Your info</div>
+                <div class="profile-grid">
+                    <input type="text"   id="p-name"   placeholder="Name">
+                    <input type="number" id="p-age"    placeholder="Age">
+                    <input type="number" id="p-weight" placeholder="Weight (kg)">
+                    <input type="number" id="p-height" placeholder="Height (cm)">
+                </div>
+            </div>
+
+            <div>
+                <div class="section-label">Daily calorie goal</div>
+                <input type="number" id="p-cal-goal" placeholder="e.g. 2000" style="max-width:180px;">
+            </div>
+
+            <div>
+                <div class="section-label">Diet type</div>
+                <select id="p-diet-type">
+                    <option value="">No preference</option>
+                    <option value="balanced">Balanced</option>
+                    <option value="high-protein">High protein</option>
+                    <option value="low-carb">Low carb / keto</option>
+                    <option value="vegan">Vegan</option>
+                    <option value="vegetarian">Vegetarian</option>
+                    <option value="mediterranean">Mediterranean</option>
+                    <option value="paleo">Paleo</option>
+                    <option value="gluten-free">Gluten-free</option>
+                </select>
+            </div>
+
+            <div>
+                <div class="section-label">Diet notes (for AI tips)</div>
+                <textarea id="p-diet-notes" placeholder="e.g. Allergic to nuts, trying to build muscle, prefer low-sodium meals…"></textarea>
+            </div>
+
+            <div>
+                <div class="section-label">App colour theme</div>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;" id="theme-picker">
+                    <button class="theme-swatch selected" data-primary="#e8622a" data-secondary="#d0521d" data-bg="#f5f1eb" data-card="#ffffff" title="Orange (default)" style="background:linear-gradient(135deg,#e8622a,#d0521d);"></button>
+                    <button class="theme-swatch" data-primary="#2563eb" data-secondary="#1d4ed8" data-bg="#f0f4ff" data-card="#ffffff" title="Blue" style="background:linear-gradient(135deg,#2563eb,#1d4ed8);"></button>
+                    <button class="theme-swatch" data-primary="#7c3aed" data-secondary="#6d28d9" data-bg="#f5f0ff" data-card="#ffffff" title="Purple" style="background:linear-gradient(135deg,#7c3aed,#6d28d9);"></button>
+                    <button class="theme-swatch" data-primary="#059669" data-secondary="#047857" data-bg="#f0fdf4" data-card="#ffffff" title="Green" style="background:linear-gradient(135deg,#059669,#047857);"></button>
+                    <button class="theme-swatch" data-primary="#dc2626" data-secondary="#b91c1c" data-bg="#fff5f5" data-card="#ffffff" title="Red" style="background:linear-gradient(135deg,#dc2626,#b91c1c);"></button>
+                    <button class="theme-swatch" data-primary="#d97706" data-secondary="#b45309" data-bg="#fffbeb" data-card="#ffffff" title="Amber" style="background:linear-gradient(135deg,#d97706,#b45309);"></button>
+                    <button class="theme-swatch" data-primary="#0891b2" data-secondary="#0e7490" data-bg="#f0fbff" data-card="#ffffff" title="Cyan" style="background:linear-gradient(135deg,#0891b2,#0e7490);"></button>
+                    <button class="theme-swatch dark" data-primary="#f59e0b" data-secondary="#d97706" data-bg="#111827" data-card="#1f2937" data-text="#f9fafb" data-muted="#9ca3af" title="Dark + Gold" style="background:linear-gradient(135deg,#111827,#f59e0b);"></button>
+                    <button class="theme-swatch dark" data-primary="#60a5fa" data-secondary="#3b82f6" data-bg="#0f172a" data-card="#1e293b" data-text="#f1f5f9" data-muted="#94a3b8" title="Dark + Blue" style="background:linear-gradient(135deg,#0f172a,#60a5fa);"></button>
+                    <button class="theme-swatch dark" data-primary="#a78bfa" data-secondary="#8b5cf6" data-bg="#1a0533" data-card="#2d1b4e" data-text="#f5f3ff" data-muted="#c4b5fd" title="Dark + Purple" style="background:linear-gradient(135deg,#1a0533,#a78bfa);"></button>
+                </div>
+            </div>
+
+            <button id="save-profile-btn">Save profile</button>
+            <button class="btn-danger-outline" id="reset-account-btn">⚠️ Reset entire account</button>
+
+        </div>
+
+    </div><!-- /dashboard -->
+</div><!-- /card -->
+
+<script src="script.js"></script>
+</body>
+</html>

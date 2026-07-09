@@ -1,0 +1,6 @@
+Flask==3.0.2
+google-generativeai==0.4.1
+gunicorn==21.2.0
+setuptools
+supabase
+Pillow
