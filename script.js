@@ -106,6 +106,8 @@ async function initApp() {
         const { data: { session } } = await supabaseClient.auth.getSession();
         if (session?.user) { currentUserId = session.user.id; showDashboard(session.user); }
         else showAuth();
+
+        checkPasswordResetFlow();
     } catch (err) { console.error('initApp:', err); }
 }
 
@@ -135,14 +137,112 @@ document.getElementById('signup-btn').addEventListener('click', async () => {
     signupError.textContent = '';
     if (!email || !password) { signupError.textContent = 'Email and password are required.'; return; }
     if (password.length < 6) { signupError.textContent = 'Password must be at least 6 characters.'; return; }
-    const { data, error } = await supabaseClient.auth.signUp({ email, password, options: { data: { first_name: first, last_name: last } } });
-    const alreadyExists = (error && error.message.toLowerCase().includes('already registered')) || (data?.user && !data?.session);
-    if (alreadyExists) {
-        const { error: loginErr } = await supabaseClient.auth.signInWithPassword({ email, password });
-        if (loginErr) { switchAuthTab('login'); document.getElementById('login-email').value = email; loginError.textContent = 'Account exists — enter your password.'; }
+
+    const btn = document.getElementById('signup-btn');
+    btn.disabled = true; btn.textContent = 'Creating account…';
+
+    // Always attempt signUp first, then immediately sign in to bypass email confirm
+    const { data, error } = await supabaseClient.auth.signUp({
+        email, password,
+        options: { data: { first_name: first, last_name: last } }
+    });
+
+    const alreadyExists = (error && error.message.toLowerCase().includes('already registered'))
+        || (data?.user && !data?.session);
+
+    if (error && !alreadyExists) {
+        signupError.textContent = error.message;
+        btn.disabled = false; btn.textContent = 'Create account';
         return;
     }
-    if (error) signupError.textContent = error.message;
+
+    // Whether new or existing account, sign in directly so no email confirm needed
+    const { error: loginErr } = await supabaseClient.auth.signInWithPassword({ email, password });
+    btn.disabled = false; btn.textContent = 'Create account';
+    if (loginErr) {
+        if (alreadyExists) {
+            signupError.textContent = 'Account already exists. Try logging in instead.';
+            switchAuthTab('login');
+            document.getElementById('login-email').value = email;
+        } else {
+            signupError.textContent = loginErr.message;
+        }
+    }
+    // onAuthStateChange will handle the redirect into the dashboard
+});
+
+// ── Forgot password ───────────────────────────────────
+function showForgotPassword() {
+    document.getElementById('login-form').classList.add('hidden');
+    document.getElementById('forgot-form').classList.remove('hidden');
+    document.getElementById('auth-tabs').classList.add('hidden');
+    document.getElementById('forgot-email-input').value = document.getElementById('login-email').value;
+    document.getElementById('forgot-msg').textContent = '';
+}
+function hideForgotPassword() {
+    document.getElementById('forgot-form').classList.add('hidden');
+    document.getElementById('login-form').classList.remove('hidden');
+    document.getElementById('auth-tabs').classList.remove('hidden');
+}
+
+document.getElementById('forgot-link').addEventListener('click', e => { e.preventDefault(); showForgotPassword(); });
+document.getElementById('forgot-back-btn').addEventListener('click', hideForgotPassword);
+
+document.getElementById('forgot-send-btn').addEventListener('click', async () => {
+    const email = document.getElementById('forgot-email-input').value.trim();
+    const msg   = document.getElementById('forgot-msg');
+    const btn   = document.getElementById('forgot-send-btn');
+    if (!email) { msg.style.color = 'var(--danger)'; msg.textContent = 'Please enter your email address.'; return; }
+
+    btn.disabled = true; btn.textContent = 'Sending…';
+    const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin + '/?reset=true'
+    });
+    btn.disabled = false; btn.textContent = 'Send reset email';
+
+    if (error) {
+        msg.style.color = 'var(--danger)';
+        msg.textContent = error.message;
+    } else {
+        msg.style.color = 'var(--green)';
+        msg.textContent = '✅ Reset email sent! Check your inbox and follow the link to set a new password.';
+        btn.disabled = true;
+    }
+});
+
+// Handle password reset redirect (user clicked link in email)
+async function checkPasswordResetFlow() {
+    const params = new URLSearchParams(window.location.search);
+    const hash   = window.location.hash;
+    // Supabase puts the token in the hash as #access_token=...&type=recovery
+    if (hash.includes('type=recovery') || params.get('reset') === 'true') {
+        // Let onAuthStateChange handle the session, then show reset UI
+        supabaseClient.auth.onAuthStateChange(async (event, session) => {
+            if (event === 'PASSWORD_RECOVERY') {
+                window.history.replaceState(null, '', window.location.pathname);
+                showPasswordResetModal();
+            }
+        });
+    }
+}
+
+function showPasswordResetModal() {
+    const modal = document.getElementById('password-reset-modal');
+    modal.classList.remove('hidden');
+}
+
+document.getElementById('save-new-password-btn')?.addEventListener('click', async () => {
+    const pw  = document.getElementById('new-password-input').value;
+    const msg = document.getElementById('reset-modal-msg');
+    if (!pw || pw.length < 6) { msg.style.color='var(--danger)'; msg.textContent='Password must be at least 6 characters.'; return; }
+
+    const { error } = await supabaseClient.auth.updateUser({ password: pw });
+    if (error) {
+        msg.style.color = 'var(--danger)'; msg.textContent = error.message;
+    } else {
+        msg.style.color = 'var(--green)'; msg.textContent = '✅ Password updated! You are now signed in.';
+        setTimeout(() => document.getElementById('password-reset-modal').classList.add('hidden'), 2000);
+    }
 });
 
 async function googleOAuth() {
