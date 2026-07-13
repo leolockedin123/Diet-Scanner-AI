@@ -62,13 +62,26 @@ def analyse_food():
 Return ONLY valid JSON, no markdown:
 {{"dish":"string","confidence":"high|medium|low","servingNote":"string","calories":0,"protein_g":0,"carbs_g":0,"fat_g":0,"fiber_g":0,"sugar_g":0,"sodium_mg":0,"items":[{{"name":"string","calories":0,"amount":"string"}}],"tip":"string"}}"""
 
-        response = genai_client.models.generate_content(
-            model='gemini-1.5-flash',
-            contents=[
-                genai_types.Part.from_bytes(data=base64.b64decode(image_b64), mime_type=mime_type),
-                prompt
-            ]
-        )
+        MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite']
+        response = None
+        last_err = None
+        for model_name in MODELS:
+            try:
+                response = genai_client.models.generate_content(
+                    model=model_name,
+                    contents=[
+                        genai_types.Part.from_bytes(data=base64.b64decode(image_b64), mime_type=mime_type),
+                        prompt
+                    ]
+                )
+                print(f"Success with model: {model_name}")
+                break
+            except Exception as me:
+                print(f"Model {model_name} failed: {me}")
+                last_err = me
+                continue
+        if response is None:
+            raise last_err
 
         raw = response.text.strip()
         # Strip markdown fences if present
