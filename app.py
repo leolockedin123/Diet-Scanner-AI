@@ -58,33 +58,12 @@ def analyse_food():
         if profile.get('diet_notes'):
             goal_str += f" Diet notes: {profile['diet_notes']}."
 
-        prompt = f"""You are a precise nutritionist AI. Analyse this bird's-eye-view food photo.
-{goal_str}
-
-Return ONLY a valid JSON object — no markdown, no backticks, no extra text — in exactly this structure:
-{{
-  "dish": "Name of the dish or meal",
-  "confidence": "high|medium|low",
-  "servingNote": "e.g. 1 plate (~350g) or 1 cup",
-  "calories": 520,
-  "protein_g": 28,
-  "carbs_g": 55,
-  "fat_g": 18,
-  "fiber_g": 4,
-  "sugar_g": 8,
-  "sodium_mg": 420,
-  "items": [
-    {{"name": "Grilled chicken breast", "calories": 220, "amount": "120g"}},
-    {{"name": "Brown rice", "calories": 180, "amount": "150g"}},
-    {{"name": "Steamed broccoli", "calories": 40, "amount": "80g"}}
-  ],
-  "tip": "A short personalised health tip about this meal (1 sentence)"
-}}
-
-Be as accurate as possible. If uncertain, lean conservative on calories."""
+        prompt = f"""Analyse this food photo. {goal_str}
+Return ONLY valid JSON, no markdown:
+{{"dish":"string","confidence":"high|medium|low","servingNote":"string","calories":0,"protein_g":0,"carbs_g":0,"fat_g":0,"fiber_g":0,"sugar_g":0,"sodium_mg":0,"items":[{{"name":"string","calories":0,"amount":"string"}}],"tip":"string"}}"""
 
         response = genai_client.models.generate_content(
-            model='gemini-2.0-flash',
+            model='gemini-1.5-flash',
             contents=[
                 genai_types.Part.from_bytes(data=base64.b64decode(image_b64), mime_type=mime_type),
                 prompt
@@ -121,10 +100,13 @@ Be as accurate as possible. If uncertain, lean conservative on calories."""
 
     except json.JSONDecodeError as e:
         print(f"JSON parse error: {e} | raw: {raw}")
-        return jsonify({"error": "Could not parse nutrition data", "raw": raw}), 500
+        return jsonify({"error": "Could not parse nutrition data — try again."}), 500
     except Exception as e:
-        print(f"Analyse error: {e}")
-        return jsonify({"error": str(e)}), 500
+        err_str = str(e)
+        print(f"Analyse error: {err_str}")
+        if 'RESOURCE_EXHAUSTED' in err_str or '429' in err_str:
+            return jsonify({"error": "Gemini free quota reached for today. It resets at midnight Pacific time. Try again tomorrow, or upgrade your Google AI API key at aistudio.google.com."}), 429
+        return jsonify({"error": "Analysis failed — please try again."}), 500
 
 # ── Food logs ─────────────────────────────────────────────────────────────────
 
