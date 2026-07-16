@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"> 
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Calio — AI Calorie Tracker</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin> 
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -749,11 +749,16 @@
             </div>
 
             <!-- Scan zone / preview -->
-            <input type="file" id="file-input" accept="image/*" capture="environment">
+            <input type="file" id="file-input"    accept="image/*" capture="environment" style="display:none">
+            <input type="file" id="gallery-input" accept="image/*" style="display:none">
             <div id="scan-zone" class="scan-zone">
                 <div class="scan-zone-icon">📷</div>
-                <h3>Snap your meal</h3>
-                <p>Tap to take a photo or upload from gallery</p>
+                <h3>Add your meal</h3>
+                <p style="margin-bottom:16px;">Take a bird's-eye photo or pick from your gallery</p>
+                <div style="display:flex;gap:10px;width:100%;justify-content:center;">
+                    <button id="camera-btn" style="flex:1;max-width:150px;padding:10px 0;background:var(--accent);color:#fff;border:none;border-radius:10px;font-family:'DM Sans',sans-serif;font-size:0.88rem;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;">📷 Camera</button>
+                    <button id="gallery-btn" style="flex:1;max-width:150px;padding:10px 0;background:var(--card2);color:var(--text);border:1.5px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:0.88rem;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;">🖼️ Gallery</button>
+                </div>
             </div>
             <div id="preview-wrap" class="hidden">
                 <img id="preview-img" alt="Food preview">
